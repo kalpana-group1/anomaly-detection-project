@@ -5,22 +5,24 @@
 
 
 import pandas as pd
+import numpy as np
 import os
 from env import get_db_url
-
+import env
 
 
 def acquire():
-    
+    # CSV file available?
     filename = 'curriculum.csv'
-    
+    # Path
     if os.path.exists(filename):
         
         return pd.read_csv(filename)
     
     else:
-        query = """SELECT * FROM logs LEFT JOIN cohorts ON logs.user_id = cohorts.id"""
-        df = pd.read_sql(query, get_db_url('curriculum_logs'))
+        url = f'mysql+pymysql://{env.user}:{env.password}@{env.host}/curriculum_logs'
+        query = """SELECT * FROM logs LEFT JOIN cohorts ON logs.cohort_id = cohorts.id"""
+        df = pd.read_sql(query, url)
         
         df.to_csv(filename, index=False)
         
@@ -128,9 +130,26 @@ def prepare_data(df):
     df.time=pd.to_timedelta(df.time)
     df['datetime']=df.date+df.time
     df=df.set_index('datetime')
-    df= df.drop(columns = ['date', 'time','deleted_at'])
+    df= df.drop(columns = ['time','deleted_at'])
     df['role'] = df['cohort'].apply(lambda x: 'staff' if x == 'staff' else 'student')
-    
+    df['endpoint']=df['endpoint'].astype(str)
+    df=df.rename(columns={'date': 'access_date'})
+    df['alumni']= np.where((df['access_date']>df['end_date']),'alumn','current')
+    df=df.drop(columns=['access_date'])
+   
     return df
 
-    
+def parse_request(string):
+    out = {}
+    arr = string.split('/')
+    out['page'] = arr[0]
+    if len(arr) > 1:
+        out['query'] = arr[1]
+    else:
+        out['query'] = ''
+    return pd.Series(out)    
+
+def string_split(df):
+    df['endpoint']=df['endpoint'].astype(str)
+    df = pd.concat([df,  df.endpoint.apply(prep.parse_request)], axis=1)
+    return df
